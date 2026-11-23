@@ -4,6 +4,7 @@ Usage (from the project folder, with Ollama running):
     python -m eval.run_eval                          # qwen2.5:7b via Ollama
     python -m eval.run_eval --model qwen2.5:14b      # compare another model
     python -m eval.run_eval --case 03                # only cases whose id contains "03"
+    python -m eval.run_eval --set holdout            # the unseen held-out cases
     python -m eval.run_eval --provider anthropic --model claude-sonnet-5-5
 
 Each case in eval/cases.jsonl has an email and the expected answer. Only the
@@ -30,7 +31,7 @@ from app.models import QuoteDraft
 from app.pipeline import process_email
 
 ROOT = Path(__file__).resolve().parent.parent
-CASES_FILE = ROOT / "eval" / "cases.jsonl"
+CASE_SETS = {"dev": ROOT / "eval" / "cases.jsonl", "holdout": ROOT / "eval" / "holdout.jsonl"}
 RESULTS_DIR = ROOT / "eval" / "results"
 
 NUMERIC_FIELDS = {"weight_kg", "volume_cbm"}
@@ -95,9 +96,9 @@ def score_case(draft: QuoteDraft, expected: dict) -> dict[str, dict]:
     }
 
 
-def load_cases(filter_text: str | None = None) -> list[dict]:
+def load_cases(filter_text: str | None = None, case_set: str = "dev") -> list[dict]:
     cases = []
-    for line in CASES_FILE.read_text(encoding="utf-8").splitlines():
+    for line in CASE_SETS[case_set].read_text(encoding="utf-8").splitlines():
         if not line.strip():
             continue
         case = json.loads(line)
@@ -181,11 +182,15 @@ def main() -> None:
     parser.add_argument("--provider", default="ollama", choices=["ollama", "anthropic"])
     parser.add_argument("--model", default=None)
     parser.add_argument("--case", default=None, help="only run cases whose id contains this text")
+    parser.add_argument(
+        "--set", dest="case_set", default="dev", choices=list(CASE_SETS),
+        help="dev = the 30 cases we tune on; holdout = unseen cases, run once, never tune on them",
+    )
     args = parser.parse_args()
 
     llm, model = build_llm(args.provider, args.model)
-    cases = load_cases(args.case)
-    print(f"Running {len(cases)} case(s) with {args.provider}:{model}\n")
+    cases = load_cases(args.case, args.case_set)
+    print(f"Running {len(cases)} {args.case_set} case(s) with {args.provider}:{model}\n")
     try:
         results = run(cases, llm)
     except LLMUnavailableError as exc:
@@ -196,7 +201,7 @@ def main() -> None:
 
     RESULTS_DIR.mkdir(exist_ok=True)
     stamp = datetime.now().astimezone().strftime("%Y%m%d-%H%M%S")
-    out = RESULTS_DIR / f"{stamp}_{args.provider}_{model.replace(':', '-')}.json"
+    out = RESULTS_DIR / f"{stamp}_{args.case_set}_{args.provider}_{model.replace(':', '-')}.json"
     out.write_text(json.dumps({"provider": args.provider, "model": model, "summary": summary,
                                "results": results}, indent=2, ensure_ascii=False))
     print(f"Saved detailed results to {out.relative_to(ROOT)}")

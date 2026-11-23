@@ -38,9 +38,10 @@ def main() -> None:
     parser.add_argument("case", help="text that appears in the case id, e.g. 01")
     parser.add_argument("--provider", default="ollama", choices=["ollama", "anthropic"])
     parser.add_argument("--model", default=None)
+    parser.add_argument("--set", dest="case_set", default="dev", choices=["dev", "holdout"])
     args = parser.parse_args()
 
-    cases = load_cases(args.case)
+    cases = load_cases(args.case, args.case_set)
     if len(cases) != 1:
         sys.exit(f"'{args.case}' matches {len(cases)} cases; be more specific.")
     case = cases[0]

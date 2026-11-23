@@ -13,10 +13,11 @@ KNOWN_FIELDS = {
 }
 
 
-def test_dataset_is_valid():
-    cases = load_cases()
-    assert len(cases) == 30
-    assert len({c["id"] for c in cases}) == 30
+@pytest.mark.parametrize(("case_set", "count"), [("dev", 30), ("holdout", 12)])
+def test_dataset_is_valid(case_set, count):
+    cases = load_cases(case_set=case_set)
+    assert len(cases) == count
+    assert len({c["id"] for c in cases}) == count
     for case in cases:
         assert len(case["email"]) >= 20, case["id"]
         assert set(case["expected"]) <= KNOWN_FIELDS, case["id"]
@@ -73,3 +74,8 @@ def test_score_case_reports_wrong_field():
     scores = score_case(draft, {"mode": "air", "origin_city": "Oslo"})
     assert scores["origin_city"]["ok"] is True
     assert scores["mode"] == {"ok": False, "expected": "air", "actual": "sea"}
+
+
+def test_holdout_does_not_overlap_dev():
+    dev = {c["email"] for c in load_cases(case_set="dev")}
+    assert not dev & {c["email"] for c in load_cases(case_set="holdout")}

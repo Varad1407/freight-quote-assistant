@@ -48,7 +48,7 @@ Inside Docker, `localhost` means the container itself, so `host.docker.internal`
 ## Tests
 
 ```bash
-pytest -q        # 119 tests, no API key needed (the LLM is replaced by a fake)
+pytest -q        # 121 tests, no API key needed (the LLM is replaced by a fake)
 ruff check .     # linting
 ```
 
@@ -59,19 +59,26 @@ missing details; dangerous, refrigerated and oversized cargo; invalid Incoterms;
 Expected numbers were calculated independently of the app's code. The prompt's worked example is a
 made-up email that is NOT in the evaluation set, to avoid overfitting to the test.
 
-| Date | Version | Model | Cases fully correct | Notes |
+| Date | Version | Model | Dev set (30) fully correct | Notes |
 |---|---|---|---|---|
 | 2026-11-23 | v0.5 | qwen2.5:7b | 18/30 | baseline; cities dropped, unit conversions, one crash |
 | 2026-11-23 | v0.6 | qwen2.5:7b | 21/30 | worked example, lenient parsing, grounding retry, oversized rule; pieces regressed (95% → 77%), one wrong unit (700 cu ft read as cbm) |
+| 2026-11-23 | v0.7 | qwen2.5:7b | 27/30 | unit check, rule-based piece count; remaining failures all fail safely |
+| 2026-11-23 | v0.7 | qwen2.5:7b | held-out: 9/12 | crash on "m3" unit (never seen in dev set); 1 safe rejection; 1 missed city |
 
 ```bash
 python -m eval.run_eval                       # Ollama qwen2.5:7b
 python -m eval.run_eval --model qwen2.5:14b   # compare models
 python -m eval.run_eval --case 03             # one case
+python -m eval.run_eval --set holdout         # 12 unseen cases: run once, never tune on them
 ```
 
 It prints accuracy per field, every failure with expected vs actual values, and saves full results to
 `eval/results/`. Record results here when you have them, with the date and model.
+
+**Dev vs held-out.** The 30 cases in `cases.jsonl` were used to find and fix problems, so their score is
+somewhat optimistic. `holdout.jsonl` holds 12 different emails written after tuning stopped; it is run once per
+version and never used to decide fixes. Report the held-out score as the honest number.
 
 ## How it works
 
@@ -130,7 +137,7 @@ email ──► FastAPI /api/quote-requests
 ## Verification status
 
 Verified in the build environment:
-- All 119 tests pass; `ruff` passes.
+- All 121 tests pass; `ruff` passes.
 - The server starts; `/health`, `/`, `/api/samples` respond; a missing API key returns a clear 503.
 
 **Not yet verified, so do this first:**
