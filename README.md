@@ -48,7 +48,7 @@ Inside Docker, `localhost` means the container itself, so `host.docker.internal`
 ## Tests
 
 ```bash
-pytest -q        # 134 tests, no API key needed (the LLM is replaced by a fake)
+pytest -q        # 143 tests, no API key needed (the LLM is replaced by a fake)
 ruff check .     # linting
 ```
 
@@ -114,7 +114,7 @@ email ──► FastAPI /api/quote-requests
 | `app/extractor.py` | Prompt, LLM clients (Ollama, Anthropic), JSON parsing, validation, retry loop |
 | `app/normalize.py` | Converts lb/t/cuft/inches and multiplies per-piece values, in Python |
 | `app/grounding.py` | Drops any number the LLM returned that is not in the email text |
-| `app/rules.py` | Rule-based backup for well-structured details (piece count) |
+| `app/rules.py` | Rule-based backups for well-structured details (piece count, explicitly named transport mode) |
 | `app/safety.py` | Prompt-injection defences: line removal, suspicious-notes check |
 | `app/pipeline.py` | The full email → QuoteDraft pipeline, shared by the API and the evaluation |
 | `eval/run_eval.py` | Scores the pipeline against `eval/cases.jsonl` |
@@ -128,6 +128,7 @@ email ──► FastAPI /api/quote-requests
 
 0. **The LLM reads; Python calculates.** Testing showed both qwen2.5:7b and 14b got per-piece weight and volume wrong (e.g. 8,148 kg instead of 3,538 kg). The LLM now copies numbers and units exactly as written, and `normalize.py` does the math. A bigger model did not fix this, and it was *more* vulnerable to prompt injection, because it follows instructions better.
 
+0e. **Explicit transport mode wins.** An early prompt rule said "container means sea", so "Rail: ... 3 containers" was read as sea. Now, if an email names exactly one mode ("Rail:", "by truck", "air freight"), a rule uses it; if it names none or several (multi-modal), the model decides. Checked against all 42 emails with zero wrong overrides.
 0d. **Unit synonyms.** Customers and models write units many ways (m3, m³, cubic meters, kgs, tonnes, inches). They are normalised to one standard name before validation, so a different spelling no longer fails the whole email. Unknown units are still rejected.
 0c. **Unit check and hybrid rules.** Grounding also checks the unit written next to each number ("700 cubic feet" cannot become 700 cbm). Piece counts like "12 pallets" are read by a simple rule when the model skips them: rules for regular patterns, the LLM for messy language.
 0b. **Grounding check.** qwen2.5:7b once returned a volume that appeared nowhere in the email (shown as 40,776 cbm for 12 pallets). Every number must now literally appear in the email; otherwise it is dropped, recomputed from grounded numbers where possible, and the email is flagged for review.
@@ -141,7 +142,7 @@ email ──► FastAPI /api/quote-requests
 ## Verification status
 
 Verified in the build environment:
-- All 134 tests pass; `ruff` passes.
+- All 143 tests pass; `ruff` passes.
 - The server starts; `/health`, `/`, `/api/samples` respond; a missing API key returns a clear 503.
 
 **Not yet verified, so do this first:**
