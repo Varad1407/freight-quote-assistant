@@ -65,6 +65,7 @@ made-up email that is NOT in the evaluation set, to avoid overfitting to the tes
 | 2026-11-23 | v0.6 | qwen2.5:7b | 21/30 | worked example, lenient parsing, grounding retry, oversized rule; pieces regressed (95% → 77%), one wrong unit (700 cu ft read as cbm) |
 | 2026-11-23 | v0.7 | qwen2.5:7b | 27/30 | unit check, rule-based piece count; remaining failures all fail safely |
 | 2026-11-23 | v0.7 | qwen2.5:7b | held-out: 9/12 | crash on "m3" unit (never seen in dev set); 1 safe rejection; 1 missed city |
+| 2026-11-23 | v0.9 | qwen2.5:7b | 27/30 | unit synonyms + explicit-mode rule; mode 100%; remaining: 2 missed cities, 1 safe weight rejection |
 
 ```bash
 python -m eval.run_eval                       # Ollama qwen2.5:7b
@@ -128,7 +129,7 @@ email ──► FastAPI /api/quote-requests
 
 0. **The LLM reads; Python calculates.** Testing showed both qwen2.5:7b and 14b got per-piece weight and volume wrong (e.g. 8,148 kg instead of 3,538 kg). The LLM now copies numbers and units exactly as written, and `normalize.py` does the math. A bigger model did not fix this, and it was *more* vulnerable to prompt injection, because it follows instructions better.
 
-0e. **Explicit transport mode wins.** An early prompt rule said "container means sea", so "Rail: ... 3 containers" was read as sea. Now, if an email names exactly one mode ("Rail:", "by truck", "air freight"), a rule uses it; if it names none or several (multi-modal), the model decides. Checked against all 42 emails with zero wrong overrides.
+0e. **Explicit transport mode wins.** An early prompt rule said "container means sea", so "Rail: ... 3 containers" was read as sea. Now, if an email names exactly one mode ("Rail:", "by truck", "air freight"), a rule uses it; if it names none or several (multi-modal), the model decides. Checked against all 42 emails with zero wrong overrides. A first version also reworded the prompt's mode hints; that one-sentence change made the model drop the cities in an unrelated email (dev case 30), so the prompt was reverted and only the rule kept. Small models are sensitive to prompt wording: rerun the full evaluation after every prompt change.
 0d. **Unit synonyms.** Customers and models write units many ways (m3, m³, cubic meters, kgs, tonnes, inches). They are normalised to one standard name before validation, so a different spelling no longer fails the whole email. Unknown units are still rejected.
 0c. **Unit check and hybrid rules.** Grounding also checks the unit written next to each number ("700 cubic feet" cannot become 700 cbm). Piece counts like "12 pallets" are read by a simple rule when the model skips them: rules for regular patterns, the LLM for messy language.
 0b. **Grounding check.** qwen2.5:7b once returned a volume that appeared nowhere in the email (shown as 40,776 cbm for 12 pallets). Every number must now literally appear in the email; otherwise it is dropped, recomputed from grounded numbers where possible, and the email is flagged for review.

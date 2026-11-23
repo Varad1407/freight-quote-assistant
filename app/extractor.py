@@ -57,9 +57,8 @@ Rules:
 - pieces: number of pallets, boxes, crates, cartons, drums or packages, if stated.
 - cargo_description: what the goods are, in a few words (e.g. "lithium-ion batteries", "general cargo").
   Fill it whenever the email names the goods.
-- mode: "unknown" unless stated or clearly implied ("FCL", "LCL", "ocean", "vessel" -> sea;
-  "truck", "FTL", "LTL", "trailer" -> road; "train", "rail" -> rail). Containers travel by sea, rail
-  and road, so "container" alone does not decide the mode.
+- mode: "unknown" unless stated or clearly implied ("FCL", "LCL", "container", "ocean" -> sea;
+  "truck", "FTL", "LTL", "trailer" -> road; "train", "rail" -> rail).
 - cargo_type: "hazardous" for dangerous goods (UN numbers, DG class, batteries); "refrigerated" for
   temperature-controlled goods; "oversized" for machinery or cargo too big for a standard container;
   otherwise "general".
