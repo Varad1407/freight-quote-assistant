@@ -10,6 +10,7 @@ from app.grounding import check_grounding
 from app.models import QuoteDraft, missing_fields
 from app.normalize import to_shipment
 from app.reply import build_warnings, draft_reply
+from app.rules import find_piece_count
 from app.safety import notes_are_suspicious, sanitize_email
 
 
@@ -37,6 +38,10 @@ def process_email(email_text: str, llm: LLMClient) -> QuoteDraft:
         except ExtractionError:
             pass  # keep the first result, with the bad numbers already dropped
     extraction = checked
+
+    # Rule-based backup: fill the piece count from patterns like "12 pallets" if the model skipped it.
+    if extraction.pieces is None:
+        extraction = extraction.model_copy(update={"pieces": find_piece_count(clean_email)})
 
     # Python, not the LLM, converts units and multiplies by piece count.
     shipment = to_shipment(extraction)

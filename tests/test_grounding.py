@@ -1,5 +1,7 @@
 """Tests for the grounding check: numbers must appear in the email."""
 
+import pytest
+
 from app.grounding import check_grounding, numbers_in
 from app.models import RawExtraction
 
@@ -57,3 +59,46 @@ def test_injected_number_removed_by_sanitizer_is_not_grounded():
 
 def test_numbers_in_understands_number_words():
     assert {1.0, 2.0, 12.0} <= numbers_in("One excavator and two trailers, twelve boxes")
+
+
+# --- unit check (evaluation case 26: "700 cubic feet" returned as 700 cbm) ---
+
+def test_wrong_volume_unit_is_rejected():
+    raw = make_raw(volume={"value": 700, "unit": "cbm"})
+    checked, warnings = check_grounding(raw, "10 pallets, 15,000 pounds total, 700 cubic feet.")
+    assert checked.volume is None
+    assert "cuft" in warnings[0]
+
+
+def test_wrong_weight_unit_is_rejected():
+    raw = make_raw(weight={"value": 2.5, "unit": "kg", "basis": "total"})
+    checked, warnings = check_grounding(raw, "1 crate, 2.5 tons")
+    assert checked.weight is None and warnings
+
+
+@pytest.mark.parametrize(
+    ("value", "unit", "email"),
+    [
+        (12400, "kg", "Gross weight: 12,400 kg"),
+        (24, "t", "about 24 tonnes total"),
+        (1, "t", "20 bags of 1 MT each"),
+        (650, "lb", "650 lbs per pallet"),
+        (350, "cuft", "total volume 350 cu ft"),
+        (62, "cbm", "Volume: approx. 62 cbm"),
+        (12500, "kg", "12 500 kg"),
+    ],
+)
+def test_correct_units_are_kept(value, unit, email):
+    field = "weight" if unit in ("kg", "lb", "t") else "volume"
+    data = {"value": value, "unit": unit}
+    if field == "weight":
+        data["basis"] = "total"
+    checked, warnings = check_grounding(make_raw(**{field: data}), email)
+    assert warnings == []
+    assert getattr(checked, field) is not None
+
+
+def test_number_without_a_unit_is_not_judged():
+    raw = make_raw(weight={"value": 500, "unit": "kg", "basis": "total"})
+    _, warnings = check_grounding(raw, "weight 500, see attached packing list")
+    assert warnings == []

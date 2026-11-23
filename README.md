@@ -48,7 +48,7 @@ Inside Docker, `localhost` means the container itself, so `host.docker.internal`
 ## Tests
 
 ```bash
-pytest -q        # 101 tests, no API key needed (the LLM is replaced by a fake)
+pytest -q        # 119 tests, no API key needed (the LLM is replaced by a fake)
 ruff check .     # linting
 ```
 
@@ -62,6 +62,7 @@ made-up email that is NOT in the evaluation set, to avoid overfitting to the tes
 | Date | Version | Model | Cases fully correct | Notes |
 |---|---|---|---|---|
 | 2026-11-23 | v0.5 | qwen2.5:7b | 18/30 | baseline; cities dropped, unit conversions, one crash |
+| 2026-11-23 | v0.6 | qwen2.5:7b | 21/30 | worked example, lenient parsing, grounding retry, oversized rule; pieces regressed (95% → 77%), one wrong unit (700 cu ft read as cbm) |
 
 ```bash
 python -m eval.run_eval                       # Ollama qwen2.5:7b
@@ -103,6 +104,7 @@ email ──► FastAPI /api/quote-requests
 | `app/extractor.py` | Prompt, LLM clients (Ollama, Anthropic), JSON parsing, validation, retry loop |
 | `app/normalize.py` | Converts lb/t/cuft/inches and multiplies per-piece values, in Python |
 | `app/grounding.py` | Drops any number the LLM returned that is not in the email text |
+| `app/rules.py` | Rule-based backup for well-structured details (piece count) |
 | `app/safety.py` | Prompt-injection defences: line removal, suspicious-notes check |
 | `app/pipeline.py` | The full email → QuoteDraft pipeline, shared by the API and the evaluation |
 | `eval/run_eval.py` | Scores the pipeline against `eval/cases.jsonl` |
@@ -116,6 +118,7 @@ email ──► FastAPI /api/quote-requests
 
 0. **The LLM reads; Python calculates.** Testing showed both qwen2.5:7b and 14b got per-piece weight and volume wrong (e.g. 8,148 kg instead of 3,538 kg). The LLM now copies numbers and units exactly as written, and `normalize.py` does the math. A bigger model did not fix this, and it was *more* vulnerable to prompt injection, because it follows instructions better.
 
+0c. **Unit check and hybrid rules.** Grounding also checks the unit written next to each number ("700 cubic feet" cannot become 700 cbm). Piece counts like "12 pallets" are read by a simple rule when the model skips them: rules for regular patterns, the LLM for messy language.
 0b. **Grounding check.** qwen2.5:7b once returned a volume that appeared nowhere in the email (shown as 40,776 cbm for 12 pallets). Every number must now literally appear in the email; otherwise it is dropped, recomputed from grounded numbers where possible, and the email is flagged for review.
 1. **The LLM only does what LLMs are good at: reading messy text.** Missing-field checks, warnings and the reply are plain Python. That makes them predictable, testable and free to run.
 2. **Never trust LLM output.** Every response is validated against a strict schema (`extra="forbid"`, ranges on weight and volume). Invalid output is retried with the specific error message, a "self-correction" loop.
@@ -127,7 +130,7 @@ email ──► FastAPI /api/quote-requests
 ## Verification status
 
 Verified in the build environment:
-- All 101 tests pass; `ruff` passes.
+- All 119 tests pass; `ruff` passes.
 - The server starts; `/health`, `/`, `/api/samples` respond; a missing API key returns a clear 503.
 
 **Not yet verified, so do this first:**
