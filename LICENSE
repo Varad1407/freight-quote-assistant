@@ -1,0 +1,9 @@
+Copyright (c) 2026 Varad Khasnis. All rights reserved.
+
+This repository is published for viewing and evaluation only. No permission is
+granted to copy, modify, distribute, sublicense, or use this software, in whole
+or in part, for any purpose, without prior written permission from the author.
+
+Third-party components (for example FastAPI, Pydantic, the Anthropic SDK, and
+open-weight models such as Qwen2.5 used via Ollama) remain under their own
+licences.
