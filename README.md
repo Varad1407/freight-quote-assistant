@@ -1,5 +1,7 @@
 # Freight Quote Assistant
 
+[![CI](https://github.com/Varad1407/freight-quote-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/Varad1407/freight-quote-assistant/actions/workflows/ci.yml)
+
 An AI assistant for freight forwarders. It reads a customer's quote-request email, extracts the shipment details into structured data, checks what is missing, flags risks for the team, and drafts the reply.
 
 **The pitch to a forwarder:** "Your team replies to quote requests in minutes instead of hours, and never forgets to ask for the weight or the ready date."
