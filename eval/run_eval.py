@@ -1,7 +1,7 @@
 """Evaluate the quote assistant on a labelled set of emails.
 
 Usage (from the project folder, with Ollama running):
-    python -m eval.run_eval                          # qwen2.5:7b via Ollama
+    python -m eval.run_eval                          # qwen2.5:14b via Ollama (default)
     python -m eval.run_eval --model qwen2.5:14b      # compare another model
     python -m eval.run_eval --case 03                # only cases whose id contains "03"
     python -m eval.run_eval --set holdout            # the unseen held-out cases
@@ -111,7 +111,7 @@ def load_cases(filter_text: str | None = None, case_set: str = "dev") -> list[di
 
 def build_llm(provider: str, model: str | None) -> tuple[LLMClient, str]:
     if provider == "ollama":
-        model = model or "qwen2.5:7b"
+        model = model or "qwen2.5:14b"
         return OllamaLLM(model=model, base_url=os.getenv("OLLAMA_URL", "http://localhost:11434")), model
     if provider == "anthropic":
         key = os.getenv("ANTHROPIC_API_KEY")

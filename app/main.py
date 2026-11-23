@@ -24,7 +24,7 @@ logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"), format="%(asctime)s %(
 APP_DIR = Path(__file__).parent
 SAMPLES_DIR = APP_DIR / "samples"
 DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-5-5"
-DEFAULT_OLLAMA_MODEL = "qwen2.5:7b"
+DEFAULT_OLLAMA_MODEL = "qwen2.5:14b"  # 30/30 dev, 12/12 held-out (v0.9); 7b is faster but less accurate
 
 app = FastAPI(
     title="Freight Quote Assistant",

@@ -33,7 +33,7 @@ API docs are generated automatically at http://localhost:8000/docs.
 
 | `LLM_PROVIDER` | Cost | Needs | Notes |
 |---|---|---|---|
-| `ollama` (default) | Free | Ollama running, `ollama pull qwen2.5:7b` | Runs on your Mac. Good for development; less accurate than large cloud models. |
+| `ollama` (default) | Free | Ollama running, `ollama pull qwen2.5:14b` | Runs on your Mac (about 9 GB of memory, ~17 s per email). Set `OLLAMA_MODEL=qwen2.5:7b` for ~2x speed at lower accuracy. |
 | `anthropic` | Pay per use | `ANTHROPIC_API_KEY` | More accurate. Use for demos to clients. |
 
 ## Run with Docker
@@ -66,9 +66,12 @@ made-up email that is NOT in the evaluation set, to avoid overfitting to the tes
 | 2026-11-23 | v0.7 | qwen2.5:7b | 27/30 | unit check, rule-based piece count; remaining failures all fail safely |
 | 2026-11-23 | v0.7 | qwen2.5:7b | held-out: 9/12 | crash on "m3" unit (never seen in dev set); 1 safe rejection; 1 missed city |
 | 2026-11-23 | v0.9 | qwen2.5:7b | 27/30 | unit synonyms + explicit-mode rule; mode 100%; remaining: 2 missed cities, 1 safe weight rejection |
+| 2026-11-23 | v0.9 | qwen2.5:14b | 30/30 | same code; avg 17.8 s/email (7b: 8.7 s) |
+| 2026-11-23 | v0.9 | qwen2.5:14b | held-out: 12/12 | after the h04 fix, so not fully unseen; small sample; avg 16.0 s/email |
 
 ```bash
-python -m eval.run_eval                       # Ollama qwen2.5:7b
+python -m eval.run_eval                       # Ollama qwen2.5:14b (default)
+python -m eval.run_eval --model qwen2.5:7b    # compare with the smaller model
 python -m eval.run_eval --model qwen2.5:14b   # compare models
 python -m eval.run_eval --case 03             # one case
 python -m eval.run_eval --set holdout         # 12 unseen cases: run once, never tune on them
@@ -80,6 +83,10 @@ It prints accuracy per field, every failure with expected vs actual values, and 
 **Dev vs held-out.** The 30 cases in `cases.jsonl` were used to find and fix problems, so their score is
 somewhat optimistic. `holdout.jsonl` holds 12 different emails written after tuning stopped; it is run once per
 version and never used to decide fixes. Report the held-out score as the honest number.
+
+**Model choice.** The same v0.9 code scores 27/30 with qwen2.5:7b and 30/30 with qwen2.5:14b. Earlier (v0.3), 14b alone
+still got the math wrong and fell for prompt injection: neither the bigger model nor the design alone reached
+100%, the combination did. 12 held-out emails is a small sample, so treat 12/12 as encouraging, not proof.
 
 Note: the v0.7 held-out run revealed the "m3" crash, and v0.8 fixes it. From v0.8 on, these 12 cases are no longer
 truly unseen; a new held-out set is needed for the next honest score.
