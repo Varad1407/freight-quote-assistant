@@ -48,7 +48,7 @@ Inside Docker, `localhost` means the container itself, so `host.docker.internal`
 ## Tests
 
 ```bash
-pytest -q        # 121 tests, no API key needed (the LLM is replaced by a fake)
+pytest -q        # 134 tests, no API key needed (the LLM is replaced by a fake)
 ruff check .     # linting
 ```
 
@@ -79,6 +79,9 @@ It prints accuracy per field, every failure with expected vs actual values, and 
 **Dev vs held-out.** The 30 cases in `cases.jsonl` were used to find and fix problems, so their score is
 somewhat optimistic. `holdout.jsonl` holds 12 different emails written after tuning stopped; it is run once per
 version and never used to decide fixes. Report the held-out score as the honest number.
+
+Note: the v0.7 held-out run revealed the "m3" crash, and v0.8 fixes it. From v0.8 on, these 12 cases are no longer
+truly unseen; a new held-out set is needed for the next honest score.
 
 ## How it works
 
@@ -125,6 +128,7 @@ email ──► FastAPI /api/quote-requests
 
 0. **The LLM reads; Python calculates.** Testing showed both qwen2.5:7b and 14b got per-piece weight and volume wrong (e.g. 8,148 kg instead of 3,538 kg). The LLM now copies numbers and units exactly as written, and `normalize.py` does the math. A bigger model did not fix this, and it was *more* vulnerable to prompt injection, because it follows instructions better.
 
+0d. **Unit synonyms.** Customers and models write units many ways (m3, m³, cubic meters, kgs, tonnes, inches). They are normalised to one standard name before validation, so a different spelling no longer fails the whole email. Unknown units are still rejected.
 0c. **Unit check and hybrid rules.** Grounding also checks the unit written next to each number ("700 cubic feet" cannot become 700 cbm). Piece counts like "12 pallets" are read by a simple rule when the model skips them: rules for regular patterns, the LLM for messy language.
 0b. **Grounding check.** qwen2.5:7b once returned a volume that appeared nowhere in the email (shown as 40,776 cbm for 12 pallets). Every number must now literally appear in the email; otherwise it is dropped, recomputed from grounded numbers where possible, and the email is flagged for review.
 1. **The LLM only does what LLMs are good at: reading messy text.** Missing-field checks, warnings and the reply are plain Python. That makes them predictable, testable and free to run.
@@ -137,7 +141,7 @@ email ──► FastAPI /api/quote-requests
 ## Verification status
 
 Verified in the build environment:
-- All 121 tests pass; `ruff` passes.
+- All 134 tests pass; `ruff` passes.
 - The server starts; `/health`, `/`, `/api/samples` respond; a missing API key returns a clear 503.
 
 **Not yet verified, so do this first:**

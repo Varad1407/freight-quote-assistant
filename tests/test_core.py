@@ -208,3 +208,48 @@ def test_prompt_contains_worked_example_not_from_eval_set():
 
     assert "Complete example" in SYSTEM_PROMPT
     assert "Zentech Exports" in SYSTEM_PROMPT  # made-up example, not one of the eval emails
+
+
+# --- unit synonyms (held-out case h04 crashed on "m3") ----------------------
+
+@pytest.mark.parametrize(
+    ("model_cls", "written", "standard"),
+    [
+        ("RawVolume", "m3", "cbm"),
+        ("RawVolume", "M³", "cbm"),
+        ("RawVolume", "Cubic Meters", "cbm"),
+        ("RawVolume", "cubic feet", "cuft"),
+        ("RawVolume", "cu. ft.", "cuft"),
+        ("RawWeight", "KGS", "kg"),
+        ("RawWeight", "tonnes", "t"),
+        ("RawWeight", "metric tons", "t"),
+        ("RawWeight", "Pounds", "lb"),
+        ("RawDimensions", "inches", "in"),
+        ("RawDimensions", "metres", "m"),
+    ],
+)
+def test_unit_synonyms_are_normalised(model_cls, written, standard):
+    from app import models
+
+    data = {"value": 1, "unit": written}
+    if model_cls == "RawWeight":
+        data["basis"] = "total"
+    if model_cls == "RawDimensions":
+        data = {"length": 1, "width": 1, "height": 1, "unit": written}
+    assert getattr(models, model_cls).model_validate(data).unit == standard
+
+
+def test_unknown_unit_is_still_rejected():
+    from pydantic import ValidationError
+
+    from app.models import RawVolume
+
+    with pytest.raises(ValidationError):
+        RawVolume.model_validate({"value": 5, "unit": "barrels"})
+
+
+def test_m3_volume_flows_through_extraction():
+    raw = {**COMPLETE_RAW, "volume": {"value": 62, "unit": "m3"}}
+    extraction, attempts = extract_shipment(EMAIL, FakeLLM([json.dumps(raw)]))
+    assert attempts == 1  # accepted first time; before this fix it failed all 3 attempts
+    assert extraction.volume.unit == "cbm"

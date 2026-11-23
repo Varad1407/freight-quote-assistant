@@ -81,6 +81,41 @@ class ShipmentRequest(BaseModel):
 # The LLM copies numbers and units exactly as written. It never converts or
 # multiplies: Python does that in normalize.py, because LLMs are bad at arithmetic.
 
+# Different ways a unit can be written -> the one standard name we use.
+# The held-out evaluation crashed when the model wrote "m3" instead of "cbm".
+UNIT_SYNONYMS = {
+    "weight": {
+        "kg": ["kg", "kgs", "kilo", "kilos", "kilogram", "kilograms"],
+        "lb": ["lb", "lbs", "pound", "pounds"],
+        "t": ["t", "ton", "tons", "tonne", "tonnes", "mt", "metric ton", "metric tons", "metric tonne",
+              "metric tonnes"],
+    },
+    "volume": {
+        "cbm": ["cbm", "m3", "m³", "m^3", "cu m", "cu.m", "cubic meter", "cubic meters", "cubic metre",
+                "cubic metres"],
+        "cuft": ["cuft", "cu ft", "cu.ft", "cu. ft", "cft", "ft3", "ft³", "cubic foot", "cubic feet"],
+    },
+    "length": {
+        "cm": ["cm", "cms", "centimeter", "centimeters", "centimetre", "centimetres"],
+        "m": ["m", "mtr", "mtrs", "meter", "meters", "metre", "metres"],
+        "mm": ["mm", "millimeter", "millimeters", "millimetre", "millimetres"],
+        "in": ["in", "inch", "inches", '"', "''"],
+    },
+}
+_UNIT_LOOKUP = {
+    kind: {alias: standard for standard, aliases in table.items() for alias in aliases}
+    for kind, table in UNIT_SYNONYMS.items()
+}
+
+
+def normalise_unit(value, kind: str):
+    """'Cubic Meters' -> 'cbm'. Unknown units are returned unchanged, so validation still rejects them."""
+    if not isinstance(value, str):
+        return value
+    key = " ".join(value.strip().lower().rstrip(".").split())
+    return _UNIT_LOOKUP[kind].get(key, value)
+
+
 class RawWeight(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -88,12 +123,22 @@ class RawWeight(BaseModel):
     unit: Literal["kg", "lb", "t"]
     basis: Literal["total", "per_piece"] = "total"
 
+    @field_validator("unit", mode="before")
+    @classmethod
+    def standard_unit(cls, value):
+        return normalise_unit(value, "weight")
+
 
 class RawVolume(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     value: float = Field(gt=0)
     unit: Literal["cbm", "cuft"]
+
+    @field_validator("unit", mode="before")
+    @classmethod
+    def standard_unit(cls, value):
+        return normalise_unit(value, "volume")
 
 
 class RawDimensions(BaseModel):
@@ -105,6 +150,11 @@ class RawDimensions(BaseModel):
     width: float = Field(gt=0)
     height: float = Field(gt=0)
     unit: Literal["cm", "m", "mm", "in"]
+
+    @field_validator("unit", mode="before")
+    @classmethod
+    def standard_unit(cls, value):
+        return normalise_unit(value, "length")
 
 
 class RawExtraction(BaseModel):
