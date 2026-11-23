@@ -5,7 +5,7 @@ in the evaluation script (eval/run_eval.py) and in tests, so what we measure is
 exactly what users get.
 """
 
-from app.extractor import LLMClient, extract_shipment
+from app.extractor import ExtractionError, LLMClient, extract_shipment
 from app.grounding import check_grounding
 from app.models import QuoteDraft, missing_fields
 from app.normalize import to_shipment
@@ -21,7 +21,22 @@ def process_email(email_text: str, llm: LLMClient) -> QuoteDraft:
     extraction, attempts = extract_shipment(clean_email, llm)
 
     # Every number must appear in the email; invented numbers are dropped.
-    extraction, grounding_warnings = check_grounding(extraction, clean_email)
+    checked, grounding_warnings = check_grounding(extraction, clean_email)
+    if grounding_warnings:
+        # Self-correction: tell the model exactly which numbers were not in the email, ask once more.
+        feedback = (
+            "\n".join(grounding_warnings)
+            + "\nCopy every number and unit exactly as written in the email. Do not convert or multiply."
+        )
+        try:
+            retry, retry_attempts = extract_shipment(clean_email, llm, feedback=feedback)
+            attempts += retry_attempts
+            retry_checked, retry_warnings = check_grounding(retry, clean_email)
+            if len(retry_warnings) < len(grounding_warnings):
+                checked, grounding_warnings = retry_checked, retry_warnings
+        except ExtractionError:
+            pass  # keep the first result, with the bad numbers already dropped
+    extraction = checked
 
     # Python, not the LLM, converts units and multiplies by piece count.
     shipment = to_shipment(extraction)

@@ -3,7 +3,13 @@
 import pytest
 
 from app.models import RawDimensions, RawVolume, RawWeight
-from app.normalize import dimensions_label, total_volume_cbm, total_weight_kg
+from app.normalize import (
+    dimensions_label,
+    exceeds_container,
+    to_shipment,
+    total_volume_cbm,
+    total_weight_kg,
+)
 from app.safety import notes_are_suspicious, sanitize_email
 
 # --- weight ---------------------------------------------------------------
@@ -58,6 +64,29 @@ def test_dimensions_without_pieces_gives_no_volume():
 def test_dimensions_label():
     dims = RawDimensions(length=120, width=100, height=110, unit="cm")
     assert dimensions_label(dims) == "120 x 100 x 110 cm per piece"
+
+
+# --- oversized rule (evaluation case 11) -----------------------------------
+
+@pytest.mark.parametrize(
+    ("dims", "expected"),
+    [
+        (RawDimensions(length=950, width=300, height=320, unit="cm"), True),   # excavator
+        (RawDimensions(length=120, width=100, height=110, unit="cm"), False),  # pallet
+        (RawDimensions(length=13, width=2, height=2, unit="m"), True),         # too long
+        (RawDimensions(length=11, width=2.2, height=2.5, unit="m"), False),    # fits a high-cube
+    ],
+)
+def test_exceeds_container(dims, expected):
+    assert exceeds_container(dims) is expected
+
+
+def test_oversized_set_by_python_but_hazardous_kept():
+    from app.models import RawExtraction
+
+    big = {"length": 950, "width": 300, "height": 320, "unit": "cm"}
+    assert to_shipment(RawExtraction(cargo_type="unknown", dimensions=big)).cargo_type.value == "oversized"
+    assert to_shipment(RawExtraction(cargo_type="hazardous", dimensions=big)).cargo_type.value == "hazardous"
 
 
 # --- safety ---------------------------------------------------------------

@@ -48,7 +48,7 @@ Inside Docker, `localhost` means the container itself, so `host.docker.internal`
 ## Tests
 
 ```bash
-pytest -q        # 93 tests, no API key needed (the LLM is replaced by a fake)
+pytest -q        # 101 tests, no API key needed (the LLM is replaced by a fake)
 ruff check .     # linting
 ```
 
@@ -56,7 +56,12 @@ ruff check .     # linting
 
 `eval/cases.jsonl` holds 30 labelled emails (sea, air, road, rail; lb, t, cu ft, inches, mm; per-piece vs total;
 missing details; dangerous, refrigerated and oversized cargo; invalid Incoterms; 3 prompt-injection attempts).
-Expected numbers were calculated independently of the app's code.
+Expected numbers were calculated independently of the app's code. The prompt's worked example is a
+made-up email that is NOT in the evaluation set, to avoid overfitting to the test.
+
+| Date | Version | Model | Cases fully correct | Notes |
+|---|---|---|---|---|
+| 2026-11-23 | v0.5 | qwen2.5:7b | 18/30 | baseline; cities dropped, unit conversions, one crash |
 
 ```bash
 python -m eval.run_eval                       # Ollama qwen2.5:7b
@@ -122,7 +127,7 @@ email ──► FastAPI /api/quote-requests
 ## Verification status
 
 Verified in the build environment:
-- All 93 tests pass; `ruff` passes.
+- All 101 tests pass; `ruff` passes.
 - The server starts; `/health`, `/`, `/api/samples` respond; a missing API key returns a clear 503.
 
 **Not yet verified, so do this first:**

@@ -116,6 +116,22 @@ def test_invented_volume_is_dropped_and_recalculated(client):
     assert any("does not appear in the email" in w for w in body["warnings"])
 
 
+def test_grounding_retry_fixes_converted_weight(client):
+    # Evaluation case 22: the model first converts "2.5 tons" to 2500 kg (not in the email),
+    # then corrects itself after specific feedback.
+    email = "Sea freight Busan, South Korea to Melbourne. 1 crate of pumps, 2.5 tons, 3 cbm. Ready 12 January."
+    converted = {**COMPLETE_RAW, "pieces": 1, "weight": {"value": 2500, "unit": "kg", "basis": "total"},
+                 "volume": {"value": 3, "unit": "cbm"}}
+    corrected = {**converted, "weight": {"value": 2.5, "unit": "t", "basis": "total"}}
+    llm = FakeLLM([json.dumps(converted), json.dumps(corrected)])
+    use_llm(llm)
+    body = client.post("/api/quote-requests", json={"email_text": email}).json()
+    assert body["shipment"]["weight_kg"] == 2500.0
+    assert body["status"] == "ready_to_quote"
+    assert body["attempts"] == 2
+    assert "2500" in llm.calls[1][1]  # the feedback named the wrong number
+
+
 def test_invalid_llm_output_returns_502(client):
     use_llm(FakeLLM(["garbage"] * 3))
     res = client.post("/api/quote-requests", json={"email_text": EMAIL})

@@ -5,6 +5,7 @@ exact and testable. The LLM only reads numbers; it never calculates them.
 """
 
 from app.models import (
+    CargoType,
     RawDimensions,
     RawExtraction,
     RawVolume,
@@ -49,7 +50,23 @@ def dimensions_label(dimensions: RawDimensions | None) -> str | None:
     return f"{d.length:g} x {d.width:g} x {d.height:g} {d.unit} per piece"
 
 
+# Largest piece a standard 40ft high-cube container takes (metres, approximate inner size).
+CONTAINER_MAX_M = (2.69, 2.35, 12.0)  # smallest side, middle side, longest side
+
+
+def exceeds_container(dimensions: RawDimensions | None) -> bool:
+    """True if one piece cannot fit a standard container in any orientation."""
+    if dimensions is None:
+        return False
+    m = METRES_PER_UNIT[dimensions.unit]
+    sides = sorted(v * m for v in (dimensions.length, dimensions.width, dimensions.height))
+    return any(side > limit for side, limit in zip(sides, sorted(CONTAINER_MAX_M), strict=True))
+
+
 def to_shipment(raw: RawExtraction) -> ShipmentRequest:
+    cargo_type = raw.cargo_type
+    if cargo_type in (CargoType.GENERAL, CargoType.UNKNOWN) and exceeds_container(raw.dimensions):
+        cargo_type = CargoType.OVERSIZED
     return ShipmentRequest(
         customer_name=raw.customer_name,
         company=raw.company,
@@ -57,7 +74,7 @@ def to_shipment(raw: RawExtraction) -> ShipmentRequest:
         destination=raw.destination,
         mode=raw.mode,
         cargo_description=raw.cargo_description,
-        cargo_type=raw.cargo_type,
+        cargo_type=cargo_type,
         weight_kg=total_weight_kg(raw.weight, raw.pieces),
         volume_cbm=total_volume_cbm(raw.volume, raw.dimensions, raw.pieces),
         pieces=raw.pieces,

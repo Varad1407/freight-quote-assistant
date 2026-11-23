@@ -44,20 +44,39 @@ Return ONLY one JSON object, no prose, with exactly these keys:
 
 Rules:
 - Use null when a value is not stated. Never guess or invent values.
-- NEVER convert units and NEVER multiply. Copy numbers and units exactly as written.
-  Example: "12 pallets, 650 lbs per pallet" -> "pieces": 12, "weight": {"value": 650, "unit": "lb", "basis": "per_piece"}
-  Example: "total 2,100 kg" -> "weight": {"value": 2100, "unit": "kg", "basis": "total"}
-  Example: "about 21 tonnes" -> "weight": {"value": 21, "unit": "t", "basis": "total"}
-- volume: ONLY if the email explicitly states a volume (cbm, m3, cubic feet). Otherwise null.
-  NEVER calculate volume from dimensions.
-- dimensions are the size of ONE piece, e.g. "120 x 100 x 110 cm" -> length 120, width 100, height 110, unit "cm".
-- pieces: number of pallets, boxes, crates or packages, if stated.
-- Use the most specific place for origin and destination (e.g. the pickup address town, not a nearby big city).
-- Keep ready_date as written in the email (e.g. "early March", "week 12, Monday").
-- mode is "unknown" unless the customer states or clearly implies it (e.g. "FCL", "LCL", "container" means sea,
-  "truck"/"FTL"/"LTL"/"trailer" means road).
-- cargo_type "hazardous" if dangerous goods, UN numbers, batteries or DG class are mentioned.
+- Places: always split into city and country. "Shanghai, China" -> city "Shanghai", country "China".
+  If only a city is given, still fill the city. Airport or port codes (e.g. JFK, LHR) go in "city".
+  Use the pickup/delivery town if one is given.
+- NUMBERS: copy every number and unit EXACTLY as written. NEVER convert units. NEVER multiply.
+  "650 lbs per pallet" -> {"value": 650, "unit": "lb", "basis": "per_piece"}
+  "2.5 tons" -> {"value": 2.5, "unit": "t", "basis": "total"}   (NOT 2500 kg)
+  "24 tonnes" or "24 MT" -> {"value": 24, "unit": "t", "basis": "total"}
+  "15,000 pounds" -> {"value": 15000, "unit": "lb", "basis": "total"}
+- volume: ONLY if the email states a volume (cbm, m3, cubic feet). NEVER calculate it from dimensions.
+- dimensions: the size of ONE piece, as written.
+- pieces: number of pallets, boxes, crates, cartons, drums or packages, if stated.
+- cargo_description: what the goods are, in a few words (e.g. "lithium-ion batteries", "general cargo").
+  Fill it whenever the email names the goods.
+- mode: "unknown" unless stated or clearly implied ("FCL", "LCL", "container", "ocean" -> sea;
+  "truck", "FTL", "LTL", "trailer" -> road; "train", "rail" -> rail).
+- cargo_type: "hazardous" for dangerous goods (UN numbers, DG class, batteries); "refrigerated" for
+  temperature-controlled goods; "oversized" for machinery or cargo too big for a standard container;
+  otherwise "general".
+- ready_date: as written (e.g. "early March", "week 12, Monday").
 - notes: other useful details from the customer (insurance, customs, urgency) in one short sentence, or null.
+
+Complete example.
+Email:
+  Hello, please quote air freight from Bengaluru (BLR), India to Nairobi, Kenya. 5 cartons of mobile phone
+  accessories, 18 kg per carton, each carton 55 x 45 x 40 cm. Ready 3 June. FCA Bengaluru.
+  Best, Ravi Kumar, Zentech Exports
+Answer:
+{"customer_name": "Ravi Kumar", "company": "Zentech Exports",
+ "origin": {"city": "Bengaluru", "country": "India"}, "destination": {"city": "Nairobi", "country": "Kenya"},
+ "mode": "air", "cargo_description": "mobile phone accessories", "cargo_type": "general", "pieces": 5,
+ "weight": {"value": 18, "unit": "kg", "basis": "per_piece"}, "volume": null,
+ "dimensions": {"length": 55, "width": 45, "height": 40, "unit": "cm"},
+ "ready_date": "3 June", "incoterm": "FCA Bengaluru", "notes": null}
 """
 
 
@@ -161,10 +180,12 @@ def parse_json_object(text: str) -> dict:
 
 
 def extract_shipment(
-    email_text: str, llm: LLMClient, max_attempts: int = 3
+    email_text: str, llm: LLMClient, max_attempts: int = 3, feedback: str | None = None
 ) -> tuple[RawExtraction, int]:
-    """Extract a validated RawExtraction. Returns (extraction, attempts_used)."""
-    feedback: str | None = None
+    """Extract a validated RawExtraction. Returns (extraction, attempts_used).
+
+    `feedback` lets the caller start with a correction, e.g. after the grounding check.
+    """
     for attempt in range(1, max_attempts + 1):
         started = time.perf_counter()
         response_text = llm.complete(SYSTEM_PROMPT, build_user_prompt(email_text, feedback))

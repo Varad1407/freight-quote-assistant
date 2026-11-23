@@ -63,7 +63,8 @@ class FakeLLM:
 
     def complete(self, system: str, user: str) -> str:
         self.calls.append((system, user))
-        return self.responses.pop(0)
+        # Like a real model at temperature 0, keep giving the last answer once the script runs out.
+        return self.responses.pop(0) if len(self.responses) > 1 else self.responses[0]
 
 
 # --- parsing ---------------------------------------------------------------
@@ -172,6 +173,7 @@ def test_reply_ready_never_contains_a_price():
     assert "preparing your quote" in body
     assert "$" not in body and "USD" not in body and "EUR" not in body
 
+
 @pytest.mark.parametrize(
     ("given", "expected"),
     [
@@ -186,3 +188,23 @@ def test_reply_ready_never_contains_a_price():
 def test_incoterm_is_validated(given, expected):
     request = ShipmentRequest(incoterm=given)
     assert request.incoterm == expected
+
+
+# --- lenient parsing (evaluation case 02 and 25) ---------------------------
+
+def test_null_location_and_incomplete_weight_do_not_crash():
+    raw = {**COMPLETE_RAW, "origin": None, "mode": None,
+           "weight": {"value": None, "unit": None, "basis": None}}
+    llm = FakeLLM([json.dumps(raw)])
+    extraction, attempts = extract_shipment(EMAIL, llm)
+    assert attempts == 1  # accepted first time, no retry needed
+    assert extraction.weight is None
+    assert extraction.origin.city is None
+    assert extraction.mode.value == "unknown"
+
+
+def test_prompt_contains_worked_example_not_from_eval_set():
+    from app.extractor import SYSTEM_PROMPT
+
+    assert "Complete example" in SYSTEM_PROMPT
+    assert "Zentech Exports" in SYSTEM_PROMPT  # made-up example, not one of the eval emails

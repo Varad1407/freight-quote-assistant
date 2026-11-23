@@ -39,6 +39,7 @@ class Location(BaseModel):
     def label(self) -> str:
         return ", ".join(p for p in (self.city, self.country) if p) or "unknown"
 
+
 VALID_INCOTERMS = {"EXW", "FCA", "CPT", "CIP", "DAP", "DPU", "DDP", "FAS", "FOB", "CFR", "CIF"}
 
 
@@ -125,6 +126,25 @@ class RawExtraction(BaseModel):
     ready_date: str | None = None
     incoterm: str | None = None
     notes: str | None = None
+
+    # Lenient parsing: a vague or empty field becomes "unknown" instead of failing
+    # the whole email. (Evaluation case 02 failed completely because of one field.)
+    @field_validator("origin", "destination", mode="before")
+    @classmethod
+    def null_location_is_empty(cls, value):
+        return {} if value is None else value
+
+    @field_validator("mode", "cargo_type", mode="before")
+    @classmethod
+    def null_enum_is_unknown(cls, value):
+        return "unknown" if value is None else value
+
+    @field_validator("weight", "volume", "dimensions", mode="before")
+    @classmethod
+    def incomplete_quantity_is_unknown(cls, value):
+        if isinstance(value, dict) and any(v is None for v in value.values()):
+            return None
+        return value
 
 
 # Field checks in priority order: (label shown to customer, check function).
