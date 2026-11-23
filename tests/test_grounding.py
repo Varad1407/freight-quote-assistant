@@ -53,3 +53,7 @@ def test_injected_number_removed_by_sanitizer_is_not_grounded():
     clean_email = "3 crates, total 2,100 kg.\n[line removed: looked like instructions to an AI]"
     checked, warnings = check_grounding(raw, clean_email)
     assert checked.weight is None and warnings
+
+
+def test_numbers_in_understands_number_words():
+    assert {1.0, 2.0, 12.0} <= numbers_in("One excavator and two trailers, twelve boxes")

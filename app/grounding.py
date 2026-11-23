@@ -12,10 +12,20 @@ from app.models import RawExtraction
 
 _THOUSANDS_SEP = re.compile(r"(?<=\d)[,\s](?=\d{3}\b)")  # "12,400" or "12 400" -> "12400"
 _NUMBER = re.compile(r"\d+(?:\.\d+)?")
+_NUMBER_WORDS = {
+    word: float(i)
+    for i, word in enumerate(
+        ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty"]
+    )
+}
+_WORD = re.compile(r"[a-z]+")
 
 
 def numbers_in(text: str) -> set[float]:
-    return {float(n) for n in _NUMBER.findall(_THOUSANDS_SEP.sub("", text))}
+    """All numbers in the text, including written ones like "two pallets"."""
+    found = {float(n) for n in _NUMBER.findall(_THOUSANDS_SEP.sub("", text))}
+    found |= {_NUMBER_WORDS[w] for w in _WORD.findall(text.lower()) if w in _NUMBER_WORDS}
+    return found
 
 
 def _grounded(value: float, found: set[float]) -> bool:

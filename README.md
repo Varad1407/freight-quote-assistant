@@ -48,9 +48,24 @@ Inside Docker, `localhost` means the container itself, so `host.docker.internal`
 ## Tests
 
 ```bash
-pytest -q        # 73 tests, no API key needed (the LLM is replaced by a fake)
+pytest -q        # 93 tests, no API key needed (the LLM is replaced by a fake)
 ruff check .     # linting
 ```
+
+## Evaluation
+
+`eval/cases.jsonl` holds 30 labelled emails (sea, air, road, rail; lb, t, cu ft, inches, mm; per-piece vs total;
+missing details; dangerous, refrigerated and oversized cargo; invalid Incoterms; 3 prompt-injection attempts).
+Expected numbers were calculated independently of the app's code.
+
+```bash
+python -m eval.run_eval                       # Ollama qwen2.5:7b
+python -m eval.run_eval --model qwen2.5:14b   # compare models
+python -m eval.run_eval --case 03             # one case
+```
+
+It prints accuracy per field, every failure with expected vs actual values, and saves full results to
+`eval/results/`. Record results here when you have them, with the date and model.
 
 ## How it works
 
@@ -84,6 +99,8 @@ email ──► FastAPI /api/quote-requests
 | `app/normalize.py` | Converts lb/t/cuft/inches and multiplies per-piece values, in Python |
 | `app/grounding.py` | Drops any number the LLM returned that is not in the email text |
 | `app/safety.py` | Prompt-injection defences: line removal, suspicious-notes check |
+| `app/pipeline.py` | The full email → QuoteDraft pipeline, shared by the API and the evaluation |
+| `eval/run_eval.py` | Scores the pipeline against `eval/cases.jsonl` |
 | `app/reply.py` | Internal warnings and customer reply templates |
 | `app/main.py` | FastAPI app, dependency injection, error mapping (502/503/422) |
 | `app/static/index.html` | One-page demo UI for client calls |
@@ -105,7 +122,7 @@ email ──► FastAPI /api/quote-requests
 ## Verification status
 
 Verified in the build environment:
-- All 73 tests pass; `ruff` passes.
+- All 93 tests pass; `ruff` passes.
 - The server starts; `/health`, `/`, `/api/samples` respond; a missing API key returns a clear 503.
 
 **Not yet verified, so do this first:**
