@@ -6,3 +6,9 @@ __pycache__/
 .env
 .idea/
 eval/results/
+
+# Mailbox worker state (which emails already have drafts)
+.mailbox_state.json
+
+# Folder-mode demo mailbox (python -m app.mailbox --folder demo_mail)
+demo_mail/

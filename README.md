@@ -50,9 +50,44 @@ Inside Docker, `localhost` means the container itself, so `host.docker.internal`
 ## Tests
 
 ```bash
-pytest -q        # 143 tests, no API key needed (the LLM is replaced by a fake)
+pytest -q        # 164 tests, no API key needed (the LLM is replaced by a fake)
 ruff check .     # linting
 ```
+
+## Email inbox (drafts, never sends)
+
+`app/mailbox.py` reads quote requests from an inbox over IMAP and saves a draft reply for each one,
+threaded under the customer's email. **It never sends anything**: a human reviews each draft in Gmail and
+clicks Send. Emails flagged for review get `[REVIEW]` in the draft subject and a clearly marked internal
+block at the top that must be deleted before sending.
+
+Setup (Gmail): use a **test account**, turn on 2-Step Verification, create an app password, and add to `.env`:
+
+```
+IMAP_HOST=imap.gmail.com
+IMAP_USER=your-test-account@gmail.com
+IMAP_PASSWORD=your16charapppassword
+```
+
+```bash
+python -m app.mailbox --dry-run     # show what would be drafted; changes nothing
+python -m app.mailbox               # save drafts for new emails (last 7 days)
+python -m app.mailbox --watch 120   # keep checking every 2 minutes
+```
+
+Customer emails stay unread (fetched with BODY.PEEK), your own messages are never answered, and handled
+emails are remembered in `.mailbox_state.json` so nothing is drafted twice. Attachments are not read yet.
+
+**Folder mode (no email account needed):**
+
+```bash
+python -m app.mailbox --folder demo_mail
+```
+
+The first run creates `demo_mail/inbox/` with the sample emails. Put more emails there as `.txt` files
+(optional `Subject: ...` first line) or `.eml` files dragged out of Apple Mail. Drafts are written to
+`demo_mail/drafts/` as `.eml` files; double-click one to open it in Mail. It runs exactly the same worker
+code as a real mailbox, through a small class that behaves like the IMAP server.
 
 ## Evaluation
 
@@ -126,6 +161,8 @@ email ──► FastAPI /api/quote-requests
 | `app/grounding.py` | Drops any number the LLM returned that is not in the email text |
 | `app/rules.py` | Rule-based backups for well-structured details (piece count, explicitly named transport mode) |
 | `app/safety.py` | Prompt-injection defences: line removal, suspicious-notes check |
+| `app/mailbox.py` | IMAP worker: reads new emails, saves threaded draft replies, never sends |
+| `app/config.py` | `.env` loading and LLM provider selection, shared by the API and the worker |
 | `app/pipeline.py` | The full email → QuoteDraft pipeline, shared by the API and the evaluation |
 | `eval/run_eval.py` | Scores the pipeline against `eval/cases.jsonl` |
 | `app/reply.py` | Internal warnings and customer reply templates |
@@ -152,7 +189,7 @@ email ──► FastAPI /api/quote-requests
 ## Verification status
 
 Verified in the build environment:
-- All 143 tests pass; `ruff` passes.
+- All 164 tests pass; `ruff` passes.
 - The server starts; `/health`, `/`, `/api/samples` respond; a missing API key returns a clear 503.
 
 **Not yet verified, so do this first:**
