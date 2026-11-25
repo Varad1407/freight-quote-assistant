@@ -22,6 +22,7 @@ import imaplib
 import json
 import logging
 import os
+import re
 import sys
 import time
 from datetime import date, datetime, timedelta
@@ -33,7 +34,7 @@ from pathlib import Path
 
 from app.config import PROJECT_ROOT, build_llm, load_dotenv
 from app.extractor import ExtractionError, LLMClient, LLMUnavailableError
-from app.models import QuoteDraft
+from app.models import QuoteDraft, ShipmentRequest, TransportMode
 from app.pipeline import process_email
 
 logger = logging.getLogger("quote_assistant.mailbox")
@@ -104,6 +105,48 @@ def email_with_subject(msg: Message) -> str:
     subject = str(msg.get("Subject", "")).strip()
     body = get_text_body(msg)
     return f"Subject: {subject}\n\n{body}" if subject else body
+
+
+# --- deciding which emails to answer ---------------------------------------------
+# The first real-inbox test drafted "quote replies" to Google security alerts sent from
+# no-reply@accounts.google.com. Real inboxes are full of automatic mail, so we filter it.
+
+AUTOMATED_SENDER = re.compile(
+    r"^(no-?reply|do-?not-?reply|mailer-daemon|postmaster|bounces?|notifications?|alerts?)([+._-].*)?@",
+    re.IGNORECASE,
+)
+
+
+def automated_reason(msg: Message) -> str | None:
+    """Why this email looks automatic (newsletter, notification, bounce), or None if it looks personal."""
+    sender = parseaddr(str(msg.get("From", "")))[1]
+    if AUTOMATED_SENDER.match(sender):
+        return f"automated sender ({sender})"
+    auto_submitted = str(msg.get("Auto-Submitted", "")).strip().lower()
+    if auto_submitted and auto_submitted != "no":
+        return "marked as automatically sent"
+    if str(msg.get("Precedence", "")).strip().lower() in ("bulk", "list", "junk"):
+        return "bulk or mailing-list email"
+    if msg.get("List-Unsubscribe") or msg.get("List-Id"):
+        return "newsletter or mailing list"
+    return None
+
+
+def looks_like_quote_request(shipment: ShipmentRequest) -> bool:
+    """At least one shipment detail found.
+
+    Deliberately lenient: a missed customer costs money, while an unneeded draft is simply deleted
+    (nothing is ever sent automatically). A vague "price to Canada?" still gets a reply.
+    """
+    signals = [
+        shipment.origin.is_known(),
+        shipment.destination.is_known(),
+        bool(shipment.cargo_description),
+        shipment.weight_kg is not None,
+        shipment.volume_cbm is not None or bool(shipment.dimensions),
+        shipment.mode != TransportMode.UNKNOWN,
+    ]
+    return any(signals)
 
 
 # --- writing drafts -------------------------------------------------------------
@@ -201,13 +244,28 @@ def process_inbox(
             continue
 
         summary = {"message_id": message_id, "from": sender, "subject": subject}
-        try:
-            draft = process_email(text, llm)
-        except ExtractionError as exc:
-            summary.update(status="error", error=str(exc))
-            logger.warning("extraction_failed subject=%r", subject)
+
+        # Automatic mail is checked before the AI runs (saves time on newsletters and alerts).
+        skip_reason = automated_reason(msg)
+        draft = None
+        if skip_reason is None:
+            try:
+                draft = process_email(text, llm)
+            except ExtractionError as exc:
+                summary.update(status="error", error=str(exc))
+                logger.warning("extraction_failed subject=%r", subject)
+                results.append(summary)
+                continue  # not marked processed: it will be retried next run
+            if not looks_like_quote_request(draft.shipment):
+                skip_reason = "no shipment details found; not a quote request"
+        if skip_reason:
+            summary.update(status="skipped", reason=skip_reason)
             results.append(summary)
-            continue  # not marked processed: it will be retried next run
+            if not dry_run:
+                processed.add(message_id)  # remembered, so it is not checked again every run
+                if on_processed:
+                    on_processed(processed)
+            continue
 
         reply = build_reply(msg, draft, own_address)
         summary.update(status=draft.status, draft_subject=str(reply["Subject"]), missing=draft.missing)
@@ -356,6 +414,9 @@ def run_once(dry_run: bool, folder: Path | None = None) -> None:
         print("No new emails to process.")
     for r in results:
         print(f"\n--- {r['subject']!r} from {r['from']} -> {r['status']}")
+        if r["status"] == "skipped":
+            print(f"    no draft: {r['reason']}")
+            continue
         if r["status"] == "error":
             print(f"    {r['error']}")
             continue
@@ -365,7 +426,7 @@ def run_once(dry_run: bool, folder: Path | None = None) -> None:
     if dry_run:
         print("\n(dry run: no drafts were saved)")
     elif results:
-        saved = sum(r["status"] != "error" for r in results)
+        saved = sum(r["status"] not in ("error", "skipped") for r in results)
         where = f"the folder {folder / 'drafts'} (double-click a file to open it in Mail)" if folder else "your Drafts folder"
         print(f"\nSaved {saved} draft(s) to {where}.")
 

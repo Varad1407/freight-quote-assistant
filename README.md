@@ -50,7 +50,7 @@ Inside Docker, `localhost` means the container itself, so `host.docker.internal`
 ## Tests
 
 ```bash
-pytest -q        # 164 tests, no API key needed (the LLM is replaced by a fake)
+pytest -q        # 168 tests, no API key needed (the LLM is replaced by a fake)
 ruff check .     # linting
 ```
 
@@ -74,6 +74,11 @@ python -m app.mailbox --dry-run     # show what would be drafted; changes nothin
 python -m app.mailbox               # save drafts for new emails (last 7 days)
 python -m app.mailbox --watch 120   # keep checking every 2 minutes
 ```
+
+**Skipping non-quote emails.** The first real-inbox dry run drafted "quote replies" to Google security alerts.
+Now automatic mail (no-reply/notification senders, `Auto-Submitted`, `Precedence: bulk`, newsletter
+headers) is skipped before the AI runs, and emails in which the AI finds no shipment detail at all are skipped
+too. The content rule is deliberately lenient: a missed customer costs money, an unneeded draft is just deleted.
 
 Customer emails stay unread (fetched with BODY.PEEK), your own messages are never answered, and handled
 emails are remembered in `.mailbox_state.json` so nothing is drafted twice. Attachments are not read yet.
@@ -189,7 +194,7 @@ email ──► FastAPI /api/quote-requests
 ## Verification status
 
 Verified in the build environment:
-- All 164 tests pass; `ruff` passes.
+- All 168 tests pass; `ruff` passes.
 - The server starts; `/health`, `/`, `/api/samples` respond; a missing API key returns a clear 503.
 
 **Not yet verified, so do this first:**

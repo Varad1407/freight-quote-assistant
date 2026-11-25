@@ -254,3 +254,52 @@ def test_run_once_folder_mode_end_to_end(tmp_path, monkeypatch, capsys):
     assert "Created" in out and "Saved 5 draft(s)" in out
     assert len(list((tmp_path / "demo" / "drafts").glob("*.eml"))) == 5
     assert (tmp_path / "demo" / ".state.json").exists()
+
+
+# --- skipping non-quote emails (first real-inbox test drafted replies to Google alerts) ---
+
+def test_google_security_alert_is_skipped_without_calling_the_ai():
+    from app.mailbox import automated_reason
+
+    alert = make_email(body="New sign-in to your account", subject="Security alert",
+                       sender="Google <no-reply@accounts.google.com>", msg_id="<alert@google>")
+    assert "automated sender" in automated_reason(alert)
+    llm = FakeLLM(["this should never be called"])
+    processed: set[str] = set()
+    results = process_inbox(FakeIMAP([alert]), llm, OWN, processed)
+    assert results[0]["status"] == "skipped"
+    assert llm.calls == []                 # the AI was not used at all
+    assert processed == {"<alert@google>"}  # remembered, not re-checked every run
+
+
+def test_automated_headers_are_detected():
+    from app.mailbox import automated_reason
+
+    for header, value in [("Auto-Submitted", "auto-generated"), ("Precedence", "bulk"),
+                          ("List-Unsubscribe", "<mailto:unsub@news.example>")]:
+        msg = make_email(sender="News <hello@shop.example>")
+        msg[header] = value
+        assert automated_reason(msg) is not None, header
+    assert automated_reason(make_email()) is None  # a normal customer email
+    msg = make_email()
+    msg["Auto-Submitted"] = "no"
+    assert automated_reason(msg) is None
+
+
+def test_email_without_any_shipment_details_gets_no_draft():
+    nothing = {"customer_name": "Sam"}  # the model found no places, goods, weight, volume or mode
+    imap = FakeIMAP([make_email(body="Hi! Are we still on for lunch on Friday? Cheers, Sam",
+                                subject="lunch", sender="Sam <sam@friends.example>")])
+    results = process_inbox(imap, FakeLLM([json.dumps(nothing)]), OWN, set())
+    assert results[0]["status"] == "skipped"
+    assert "not a quote request" in results[0]["reason"]
+    assert imap.appended == []
+
+
+def test_vague_quote_with_one_detail_still_gets_a_draft():
+    vague = {"destination": {"city": None, "country": "Canada"}}
+    imap = FakeIMAP([make_email(body="hi need price for shipping my stuff to canada asap. thanks",
+                                subject="price?", sender="Joe <joe@example.com>")])
+    results = process_inbox(imap, FakeLLM([json.dumps(vague)]), OWN, set())
+    assert results[0]["status"] == "needs_info"
+    assert len(imap.appended) == 1
