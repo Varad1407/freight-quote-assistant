@@ -9,9 +9,16 @@ import os
 from functools import lru_cache
 from pathlib import Path
 
-from app.extractor import AnthropicLLM, LLMClient, LLMUnavailableError, OllamaLLM
+from app.extractor import (
+    AnthropicLLM,
+    GroqLLM,
+    LLMClient,
+    LLMUnavailableError,
+    OllamaLLM,
+)
 
 DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-5-5"
+DEFAULT_GROQ_MODEL = "openai/gpt-oss-120b"
 DEFAULT_OLLAMA_MODEL = "qwen2.5:14b"  # 30/30 dev, 12/12 held-out (v0.9); 7b is faster but less accurate
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -30,7 +37,7 @@ def load_dotenv(path: Path = PROJECT_ROOT / ".env") -> None:
 
 @lru_cache
 def build_llm() -> LLMClient:
-    """Pick the LLM provider from LLM_PROVIDER: 'ollama' (free, local, default) or 'anthropic'."""
+    """Pick the LLM provider from LLM_PROVIDER: 'ollama' (free, local, default), 'groq' (free, hosted) or 'anthropic'."""
     provider = os.getenv("LLM_PROVIDER", "ollama").lower()
     if provider == "ollama":
         return OllamaLLM(
@@ -42,4 +49,9 @@ def build_llm() -> LLMClient:
         if not api_key:
             raise LLMUnavailableError("ANTHROPIC_API_KEY is not set")
         return AnthropicLLM(api_key=api_key, model=os.getenv("ANTHROPIC_MODEL", DEFAULT_ANTHROPIC_MODEL))
-    raise LLMUnavailableError(f"Unknown LLM_PROVIDER '{provider}'. Use 'ollama' or 'anthropic'.")
+    if provider == "groq":
+        api_key = os.getenv("GROQ_API_KEY")
+        if not api_key:
+            raise LLMUnavailableError("GROQ_API_KEY is not set")
+        return GroqLLM(api_key=api_key, model=os.getenv("GROQ_MODEL", DEFAULT_GROQ_MODEL))
+    raise LLMUnavailableError(f"Unknown LLM_PROVIDER '{provider}'. Use 'ollama', 'anthropic' or 'groq'.")

@@ -153,6 +153,80 @@ class OllamaLLM:
         return data.get("message", {}).get("content", "")
 
 
+class GroqLLM:
+    """Free hosted LLM via Groq's OpenAI-compatible API (https://console.groq.com).
+
+    Uses only the Python standard library, like OllamaLLM.
+    """
+
+    def __init__(
+        self, api_key: str, model: str, timeout_s: float = 60.0, max_rate_limit_retries: int = 3
+    ) -> None:
+        self._api_key = api_key
+        self._model = model
+        self._url = "https://api.groq.com/openai/v1/chat/completions"
+        self._timeout_s = timeout_s
+        self._max_rate_limit_retries = max_rate_limit_retries
+
+    def complete(self, system: str, user: str) -> str:
+        import urllib.error
+        import urllib.request
+
+        body = json.dumps(
+            {
+                "model": self._model,
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                "temperature": 0,  # deterministic extraction
+                "response_format": {"type": "json_object"},  # ask for valid JSON
+            }
+        ).encode("utf-8")
+        request = urllib.request.Request(
+            self._url,
+            data=body,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self._api_key}",
+                "User-Agent": "freight-quote-assistant/1.0",
+            },
+        )
+        for attempt in range(1, self._max_rate_limit_retries + 2):
+            try:
+                with urllib.request.urlopen(request, timeout=self._timeout_s) as response:
+                    data = json.loads(response.read().decode("utf-8"))
+                break
+            except urllib.error.HTTPError as exc:  # must come BEFORE URLError (it is a subclass)
+                if exc.code == 429 and attempt <= self._max_rate_limit_retries:
+                    wait_s = _retry_after_seconds(exc.headers.get("retry-after"), default=10.0)
+                    logger.warning("groq_rate_limited attempt=%d wait_s=%.1f", attempt, wait_s)
+                    time.sleep(wait_s)
+                    continue
+                if exc.code == 401:
+                    message = "Groq rejected the API key (401). Check GROQ_API_KEY."
+                elif exc.code == 429:
+                    message = "Groq rate limit reached (429) after retries. Wait a minute and try again."
+                else:
+                    message = f"Groq returned HTTP {exc.code}."
+                raise LLMUnavailableError(message) from exc
+            except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+                raise LLMUnavailableError(f"Groq request failed ({type(exc).__name__}).") from exc
+
+        choices = data.get("choices") or []
+        if not choices:
+            raise LLMUnavailableError("Groq returned no choices.")
+        return choices[0].get("message", {}).get("content") or ""
+
+
+def _retry_after_seconds(header: str | None, default: float) -> float:
+    """Seconds to wait from a Retry-After header, capped at 60 s so a bad value can't hang the app."""
+    try:
+        return min(max(float(header), 1.0), 60.0) if header else default
+    except ValueError:
+        return default
+
+
 def build_user_prompt(email_text: str, feedback: str | None = None) -> str:
     prompt = f"<email>\n{email_text}\n</email>"
     if feedback:

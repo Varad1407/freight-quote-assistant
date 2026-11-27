@@ -6,6 +6,7 @@ Usage (from the project folder, with Ollama running):
     python -m eval.run_eval --case 03                # only cases whose id contains "03"
     python -m eval.run_eval --set holdout            # the unseen held-out cases
     python -m eval.run_eval --provider anthropic --model claude-sonnet-5-5
+    python -m eval.run_eval --provider groq          # free hosted model (GROQ_API_KEY in .env)
 
 Each case in eval/cases.jsonl has an email and the expected answer. Only the
 fields listed under "expected" are checked; a value of null means "should be empty".
@@ -23,6 +24,7 @@ from pathlib import Path
 from app.extractor import (
     AnthropicLLM,
     ExtractionError,
+    GroqLLM,
     LLMClient,
     LLMUnavailableError,
     OllamaLLM,
@@ -119,6 +121,12 @@ def build_llm(provider: str, model: str | None) -> tuple[LLMClient, str]:
             sys.exit("ANTHROPIC_API_KEY is not set")
         model = model or "claude-sonnet-5-5"
         return AnthropicLLM(api_key=key, model=model), model
+    if provider == "groq":
+        key = os.getenv("GROQ_API_KEY")
+        if not key:
+            sys.exit("GROQ_API_KEY is not set")
+        model = model or os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
+        return GroqLLM(api_key=key, model=model), model
     sys.exit(f"Unknown provider {provider!r}")
 
 
@@ -179,7 +187,7 @@ def print_report(summary: dict, results: list[dict]) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--provider", default="ollama", choices=["ollama", "anthropic"])
+    parser.add_argument("--provider", default="ollama", choices=["ollama", "anthropic", "groq"])
     parser.add_argument("--model", default=None)
     parser.add_argument("--case", default=None, help="only run cases whose id contains this text")
     parser.add_argument(
@@ -201,7 +209,7 @@ def main() -> None:
 
     RESULTS_DIR.mkdir(exist_ok=True)
     stamp = datetime.now().astimezone().strftime("%Y%m%d-%H%M%S")
-    out = RESULTS_DIR / f"{stamp}_{args.case_set}_{args.provider}_{model.replace(':', '-')}.json"
+    out = RESULTS_DIR / f"{stamp}_{args.case_set}_{args.provider}_{model.replace(':', '-').replace('/', '-')}.json"
     out.write_text(json.dumps({"provider": args.provider, "model": model, "summary": summary,
                                "results": results}, indent=2, ensure_ascii=False))
     print(f"Saved detailed results to {out.relative_to(ROOT)}")
