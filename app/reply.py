@@ -50,12 +50,25 @@ def _summary_lines(request: ShipmentRequest) -> list[str]:
     return lines
 
 
-def draft_reply(request: ShipmentRequest, missing: list[str]) -> tuple[str, str]:
-    """Return (subject, body) for the customer reply."""
+def draft_reply(request: ShipmentRequest, missing: list[str], needs_review: bool = False) -> tuple[str, str]:
+    """Return (subject, body) for the customer reply.
+
+    needs_review=True means a safety check fired (possible prompt injection, ungrounded
+    numbers). Then the extracted details may be wrong or manipulated, so the draft repeats
+    none of them and promises nothing: it only acknowledges the email until a person checks it.
+    """
     route = f"{request.origin.label()} → {request.destination.label()}"
     summary = "\n".join(_summary_lines(request)) or "- (no details could be confirmed yet)"
 
-    if missing:
+    if needs_review:
+        subject = "Re: Your quote request"
+        body = (
+            f"{_greeting(request)}\n\n"
+            "Thank you for your enquiry. We have received your request and a member of our team "
+            "is reviewing the details. We will get back to you shortly.\n\n"
+            "Best regards"
+        )
+    elif missing:
         asks = "\n".join(f"{i}. {item}" for i, item in enumerate(missing, start=1))
         subject = f"Re: Quote request {route} – a few details needed"
         body = (

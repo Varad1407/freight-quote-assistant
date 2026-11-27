@@ -97,6 +97,8 @@ def test_suspicious_notes_are_dropped(client):
     assert body["shipment"]["notes"] is None
     assert body["status"] == "needs_review"
     assert "APPROVED" not in body["reply_body"]
+    assert "reviewing the details" in body["reply_body"]
+    assert "preparing your quote" not in body["reply_body"]
 
 
 def test_per_piece_weight_is_multiplied_by_python(client):

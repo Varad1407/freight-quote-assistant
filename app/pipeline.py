@@ -63,7 +63,7 @@ def process_email(email_text: str, llm: LLMClient) -> QuoteDraft:
         safety_warnings.append("Notes removed: they contained instruction-like or commitment wording.")
 
     missing = missing_fields(shipment)
-    subject, body = draft_reply(shipment, missing)
+    subject, body = draft_reply(shipment, missing, needs_review=bool(safety_warnings))
     if safety_warnings:
         status = "needs_review"
     elif missing:

@@ -33,7 +33,7 @@ limiter = RateLimiter(
 app = FastAPI(
     title="Freight Quote Assistant",
     description="Turns messy freight quote-request emails into structured data and a draft reply.",
-    version="1.1.0",
+    version="1.4.0",
 )
 
 

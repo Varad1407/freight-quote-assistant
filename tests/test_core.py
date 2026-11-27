@@ -167,6 +167,21 @@ def test_reply_asks_for_missing_details():
     assert "1. delivery location" in body
 
 
+def test_reply_needs_review_repeats_no_details_and_promises_nothing():
+    request = ShipmentRequest.model_validate(COMPLETE)
+    subject, body = draft_reply(request, [], needs_review=True)
+    assert "reviewing the details" in body
+    assert "all the details" not in body and "preparing your quote" not in body
+    assert "Route:" not in body and "kg" not in body  # extracted values may be manipulated
+    assert "→" not in subject
+
+
+def test_reply_needs_review_wins_over_missing_details():
+    request = ShipmentRequest(customer_name="Rajesh", origin={"city": "Pune"})
+    _, body = draft_reply(request, missing_fields(request), needs_review=True)
+    assert "could you please confirm" not in body
+
+
 def test_reply_ready_never_contains_a_price():
     request = ShipmentRequest.model_validate(COMPLETE)
     _, body = draft_reply(request, [])

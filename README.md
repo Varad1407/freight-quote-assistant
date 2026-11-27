@@ -4,6 +4,9 @@
 
 An AI assistant for freight forwarders. It reads a customer's quote-request email, extracts the shipment details into structured data, checks what is missing, flags risks for the team, and drafts the reply.
 
+**Try it live:** https://freight-quote-assistant.onrender.com
+Pick a sample email and click **Process email**. Free hosting: the first request after a quiet period takes about a minute while the server wakes up. The public demo allows 10 emails per visitor per hour.
+
 **The pitch to a forwarder:** "Your team replies to quote requests in minutes instead of hours, and never forgets to ask for the weight or the ready date."
 
 ## What it does
@@ -36,6 +39,7 @@ API docs are generated automatically at http://localhost:8000/docs.
 | `LLM_PROVIDER` | Cost | Needs | Notes |
 |---|---|---|---|
 | `ollama` (default) | Free | Ollama running, `ollama pull qwen2.5:14b` | Runs on your Mac (about 9 GB of memory, ~17 s per email). Set `OLLAMA_MODEL=qwen2.5:7b` for ~2x speed at lower accuracy. |
+| `groq` | Free tier | `GROQ_API_KEY` from console.groq.com | Hosted open model (`openai/gpt-oss-120b` by default), 3–7 s per email. Used by the live demo. Retries automatically when Groq's rate limit is hit, waiting as long as its `Retry-After` header asks. |
 | `anthropic` | Pay per use | `ANTHROPIC_API_KEY` | More accurate. Use for demos to clients. |
 
 ## Run with Docker
@@ -50,9 +54,26 @@ Inside Docker, `localhost` means the container itself, so `host.docker.internal`
 ## Tests
 
 ```bash
-pytest -q        # 168 tests, no API key needed (the LLM is replaced by a fake)
+pytest -q        # 181 tests, no API key needed (the LLM is replaced by a fake)
 ruff check .     # linting
 ```
+
+## Deployment (live demo)
+
+The demo runs on Render's free tier from the same `Dockerfile`, in Frankfurt. Every push to `main` runs CI
+(lint, tests, Docker build) on GitHub Actions and triggers an automatic redeploy on Render.
+
+Environment variables set in Render (never in the repo): `LLM_PROVIDER=groq`, `GROQ_API_KEY`, `GROQ_MODEL`,
+`PORT=8000`. Health check path: `/health`. Only the variables the web app needs are set there; the mailbox
+credentials stay on the local machine.
+
+**Abuse protection.** The demo calls a free API on my account, so `app/ratelimit.py` limits each visitor (IP
+address) to 10 extractions per hour with a sliding window, and all visitors together to 300 per 24 hours.
+Over the limit, the API returns `429 Too Many Requests` with a `Retry-After` header, and the page shows a
+friendly message. Behind Render's proxy the visitor's IP is taken from the *last* `X-Forwarded-For` entry,
+the one the proxy added, because earlier entries can be faked. Limits are configurable
+(`RATE_LIMIT_PER_HOUR`, `RATE_LIMIT_PER_DAY_TOTAL`, 0 = off). Counters live in memory: fine for one
+instance, but they reset on restart and are not shared, so a multi-instance setup would keep them in Redis.
 
 ## Email inbox (drafts, never sends)
 
@@ -110,6 +131,8 @@ made-up email that is NOT in the evaluation set, to avoid overfitting to the tes
 | 2026-11-23 | v0.9 | qwen2.5:7b | 27/30 | unit synonyms + explicit-mode rule; mode 100%; remaining: 2 missed cities, 1 safe weight rejection |
 | 2026-11-23 | v0.9 | qwen2.5:14b | 30/30 | same code; avg 17.8 s/email (7b: 8.7 s) |
 | 2026-11-23 | v0.9 | qwen2.5:14b | held-out: 12/12 | after the h04 fix, so not fully unseen; small sample; avg 16.0 s/email |
+| 2026-11-27 | v1.4 | gpt-oss-120b (Groq) | 29/30 | same code, free hosted model; avg 7.3 s/email including rate-limit waits; 1 failure: case 22 marked ready to quote although the goods are never named |
+| 2026-11-27 | v1.4 | gpt-oss-120b (Groq) | held-out: 12/12 | not fully unseen (see note below); avg 2.8 s/email |
 
 ```bash
 python -m eval.run_eval                       # Ollama qwen2.5:14b (default)
@@ -117,6 +140,7 @@ python -m eval.run_eval --model qwen2.5:7b    # compare with the smaller model
 python -m eval.run_eval --model qwen2.5:14b   # compare models
 python -m eval.run_eval --case 03             # one case
 python -m eval.run_eval --set holdout         # 12 unseen cases: run once, never tune on them
+python -m eval.run_eval --provider groq       # free hosted model (GROQ_API_KEY in .env)
 ```
 
 It prints accuracy per field, every failure with expected vs actual values, and saves full results to
@@ -141,7 +165,7 @@ email ──► FastAPI /api/quote-requests
             ▼
         safety.py   remove lines that look like instructions to an AI
             ▼
-        extractor.py ── LLM (Ollama or Claude) ──► JSON with RAW numbers + units
+        extractor.py ── LLM (Ollama, Groq or Claude) ──► JSON with RAW numbers + units
             │   parse + validate with Pydantic
             │   invalid? retry with the exact error as feedback (max 3)
             ▼
@@ -161,7 +185,8 @@ email ──► FastAPI /api/quote-requests
 | File | Role |
 |---|---|
 | `app/models.py` | Pydantic schemas and the "what is required to quote" rules |
-| `app/extractor.py` | Prompt, LLM clients (Ollama, Anthropic), JSON parsing, validation, retry loop |
+| `app/extractor.py` | Prompt, LLM clients (Ollama, Groq, Anthropic), JSON parsing, validation, retry loop |
+| `app/ratelimit.py` | Per-visitor and global request limits for the public demo |
 | `app/normalize.py` | Converts lb/t/cuft/inches and multiplies per-piece values, in Python |
 | `app/grounding.py` | Drops any number the LLM returned that is not in the email text |
 | `app/rules.py` | Rule-based backups for well-structured details (piece count, explicitly named transport mode) |
@@ -190,22 +215,23 @@ email ──► FastAPI /api/quote-requests
 4. **The email is untrusted input (defence in depth).** Lines that look like instructions to an AI are removed before the LLM sees them; the email is wrapped in `<email>` tags; suspicious notes are dropped afterwards; notes never go into the customer reply; and any hit sets status `needs_review` so a human checks it. Pattern matching only catches obvious attacks, which is why a human stays in the loop.
 5. **Clear failure modes.** Bad input → 422, LLM keeps returning garbage → 502, provider down or key missing → 503. Logs record attempts and latency but never the customer's email content.
 6. **The UI builds HTML with `textContent` only**, so a malicious email can't inject scripts into the page.
+7. **A flagged email gets a neutral reply.** When a safety check fires (possible prompt injection, a number not found in the email), the extracted details may be wrong or manipulated. The draft then repeats none of them and promises nothing; it only says the request is being reviewed. Earlier versions said "we have all the details we need" even on flagged emails.
+8. **Protect a public demo before sharing it.** Rate limits keep one visitor or a bot from using up the free LLM quota for everyone (see Deployment).
 
 ## Verification status
 
-Verified in the build environment:
-- All 168 tests pass; `ruff` passes.
-- The server starts; `/health`, `/`, `/api/samples` respond; a missing API key returns a clear 503.
+Verified:
+- All 181 tests pass; `ruff` passes (locally and in GitHub Actions CI).
+- Real runs with Ollama (qwen2.5:7b and 14b) and Groq (gpt-oss-120b): see the evaluation table.
+- `docker build` and the live deployment on Render: `/health`, the demo page and real extractions work.
 
-**Not yet verified, so do this first:**
-- A real call to Ollama or the Anthropic API (neither was available while building). Run all 5 samples and check the extracted fields by hand.
-- `docker build` (no Docker daemon was available). Build it on your Mac.
-- The default model name `claude-sonnet-5-5`. If the API rejects it, set `ANTHROPIC_MODEL` to a current model from the Anthropic docs.
+**Not yet verified:**
+- The Anthropic provider and its default model name `claude-sonnet-5-5`. If the API rejects it, set `ANTHROPIC_MODEL` to a current model from the Anthropic docs.
 
 ## Next steps
 
-1. **Evaluation set:** write 30+ emails with the correct answers and measure field-level accuracy. "95% field accuracy on 30 real-style emails" is a sales line *and* a portfolio line.
-2. **Deploy** to a public URL (Render, Railway or Fly.io) so prospects can try it from a link.
-3. **Record a 2-minute demo video** using samples 02 and 03.
-4. **Gmail/Outlook integration:** read the inbox, save the draft reply automatically. This is what clients will pay a retainer for.
+1. **A fresh held-out set:** the current 12 cases are no longer truly unseen; write 15–20 new emails and run them once.
+2. **Ground the cargo description too** (dev case 22 with Groq): if the goods are never named, the description should stay empty and the email should ask for it.
+3. **Record a 2-minute demo video** using samples 02, 03 and 05.
+4. **Outlook integration** next to the Gmail/IMAP worker.
 5. **Rate lookup:** connect the forwarder's rate sheet (Excel) so the draft includes an indicative price for a human to approve.
