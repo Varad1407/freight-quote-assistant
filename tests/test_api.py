@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.extractor import LLMUnavailableError
-from app.main import app, get_llm
+from app.main import app, get_llm, limiter
 from tests.test_core import COMPLETE_RAW, FakeLLM
 
 EMAIL = "Please quote 1x40HC Shanghai to Rotterdam, 12,400 kg, approx. 62 cbm, ready 10 March."
@@ -28,8 +28,10 @@ AIR_RAW = {
 
 @pytest.fixture
 def client():
+    limiter.reset()  # every test starts with fresh rate-limit counters
     yield TestClient(app)
     app.dependency_overrides.clear()
+    limiter.reset()
 
 
 def use_llm(llm) -> None:
@@ -194,3 +196,27 @@ def test_ollama_down_returns_503(client, monkeypatch, fresh_llm_cache):
     res = client.post("/api/quote-requests", json={"email_text": EMAIL})
     assert res.status_code == 503
     assert "Ollama" in res.json()["detail"]
+
+
+def test_rate_limit_returns_429_after_limit(client):
+    use_llm(FakeLLM([json.dumps(COMPLETE_RAW)] * 20))
+    statuses = [client.post("/api/quote-requests", json={"email_text": EMAIL}).status_code for _ in range(11)]
+    assert statuses[:10] == [200] * 10
+    assert statuses[10] == 429
+
+
+def test_rate_limit_message_and_retry_after(client):
+    use_llm(FakeLLM([json.dumps(COMPLETE_RAW)] * 20))
+    for _ in range(10):
+        client.post("/api/quote-requests", json={"email_text": EMAIL})
+    res = client.post("/api/quote-requests", json={"email_text": EMAIL})
+    assert "Demo limit reached" in res.json()["detail"]
+    assert int(res.headers["Retry-After"]) > 0
+
+
+def test_rate_limit_is_per_ip(client):
+    use_llm(FakeLLM([json.dumps(COMPLETE_RAW)] * 30))
+    for _ in range(10):
+        client.post("/api/quote-requests", json={"email_text": EMAIL}, headers={"X-Forwarded-For": "1.1.1.1"})
+    other = client.post("/api/quote-requests", json={"email_text": EMAIL}, headers={"X-Forwarded-For": "2.2.2.2"})
+    assert other.status_code == 200
